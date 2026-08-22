@@ -49,15 +49,250 @@ client = genai.Client(api_key=api_key)
 st.set_page_config(
     page_title="Symptom Triage Agent",
     page_icon="🩺",
-    layout="centered"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-st.title("🩺 Symptom Triage Chat Agent")
+# Custom CSS for professional styling
+st.markdown("""
+<style>
+    /* Main container styling */
+    .main {
+        padding-top: 2rem;
+    }
+    
+    /* Header styling */
+    .header-container {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    
+    padding: 2rem;
+    border-radius: 10px;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    .header-title {
+        color: white;
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin: 0;
+    text-align: center;
+    }
+    
+    .header-subtitle {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1.1rem;
+    text-align: center;
+    margin-top: 0.5rem;
+    }
+    
+    /* Chat message styling */
+    .stChatMessage {
+        border-radius: 12px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    
+    .chat-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 1rem;
+        color: #000000;
+    }
+    
+    /* User message styling */
+    [data-testid="stChatMessage"] {
+        background-color: #f0f4f8;
+    }
+    
+    /* Ensure all message text is visible with proper contrast */
+    [data-testid="stChatMessage"] p,
+    [data-testid="stChatMessage"] div,
+    [data-testid="stChatMessage"] span {
+        color: #000000 !important;
+    }
+    
+    /* Button styling */
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0.5rem 1.5rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    
+    /* Sidebar styling */
+    .sidebar-content {
+        background-color: #f8f9fa;
+    padding: 1.5rem;
+    border-radius: 10px;
+    margin-bottom: 1rem;
+    color: #000000;
+    }
+    
+    /* Info box styling */
+    .info-box {
+        background-color: #e3f2fd;
+    border-left: 4px solid #2196f3;
+    padding: 1rem;
+    border-radius: 4px;
+    margin: 1rem 0;
+    color: #000000;
+    }
+    
+    .warning-box {
+        background-color: #fff3e0;
+    border-left: 4px solid #ff9800;
+    padding: 1rem;
+    border-radius: 4px;
+    margin: 1rem 0;
+    color: #000000;
+    }
+    
+    .danger-box {
+        background-color: #ffebee;
+    border-left: 4px solid #f44336;
+    padding: 1rem;
+    border-radius: 4px;
+    margin: 1rem 0;
+    color: #000000;
+    }
+    
+    /* Input styling */
+    .stTextInput > div > div > input {
+        border-radius: 8px;
+    border: 2px solid #e0e0e0;
+    padding: 0.75rem;
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    /* Emergency response styling */
+    .emergency-response {
+        background-color: #ffebee;
+    border: 2px solid #f44336;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    color: #000000;
+    }
+    
+    /* Triage level badges */
+    .triage-emergency {
+        background-color: #f44336;
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-weight: 600;
+    display: inline-block;
+    }
+    
+    .triage-urgent {
+        background-color: #ff9800;
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-weight: 600;
+    display: inline-block;
+    }
+    
+    .triage-routine {
+        background-color: #2196f3;
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-weight: 600;
+    display: inline-block;
+    }
+    
+    .triage-selfcare {
+        background-color: #4caf50;
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-weight: 600;
+    display: inline-block;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-st.caption(
-    "This prototype assesses symptom urgency. "
-    "It does not diagnose medical conditions."
-)
+# Header section
+st.markdown("""
+<div class="header-container">
+    <h1 class="header-title">🩺 Symptom Triage Agent</h1>
+    <p class="header-subtitle">Professional Symptom Assessment & Triage System</p>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------
+# Sidebar
+# ---------------------------------------------------------
+
+with st.sidebar:
+    st.markdown("### 🔄 Actions")
+    
+    if st.button("🔄 Start New Assessment", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
+    
+    st.markdown("---")
+    st.markdown("### ℹ️ About This Service")
+    
+    st.markdown("""
+    <div class="sidebar-content">
+        <p><strong>Symptom Triage Agent</strong> helps assess the urgency of your symptoms and provides appropriate guidance.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("### ⚠️ Important Disclaimer")
+    
+    st.markdown("""
+    <div class="danger-box">
+        <p><strong>This is NOT a medical diagnosis tool.</strong></p>
+        <p>This system provides triage recommendations only. Always consult with qualified healthcare professionals for medical advice.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("### 🚨 Emergency Numbers")
+    
+    st.markdown("""
+    <div class="warning-box">
+        <p><strong>If you experience a medical emergency, call:</strong></p>
+        <p>📞 <strong>911</strong> (US/Canada)</p>
+        <p>📞 <strong>112</strong> (Europe)</p>
+        <p>📞 <strong>999</strong> (UK)</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("### 📋 Triage Levels")
+    
+    st.markdown("""
+    <div class="info-box">
+        <p><span class="triage-emergency">Emergency</span> - Immediate medical attention required</p>
+        <p><span class="triage-urgent">Urgent</span> - Medical care within 24 hours</p>
+        <p><span class="triage-routine">Routine</span> - Standard medical appointment</p>
+        <p><span class="triage-selfcare">Self-care</span> - Home care with monitoring</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    st.markdown("### 📞 Need Help?")
+    st.markdown("""
+    <div class="info-box">
+        <p>If you're unsure about your symptoms, it's always better to err on the side of caution and consult a healthcare professional.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------
@@ -293,27 +528,22 @@ if "messages" not in st.session_state:
         {
             "role": "assistant",
             "content": (
-                "Hello! 👋 I can help assess the urgency of your symptoms.\n\n"
-                "Please describe what you are experiencing today."
+                "<div style='color: #000000; text-align: left;'>"
+                "Hello! 👋 I can help assess the urgency of your symptoms. Please describe what you are experiencing today."
+                "</div>"
             )
         }
     ]
 
 
-# ---------------------------------------------------------
-# New Assessment button
-# ---------------------------------------------------------
-
-if st.button("🔄 New Assessment"):
-
-    st.session_state.clear()
-
-    st.rerun()
 
 
 # ---------------------------------------------------------
 # Display Previous Messages
 # ---------------------------------------------------------
+
+# Add a container for the chat interface
+st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 
 for message in st.session_state.messages:
 
@@ -322,7 +552,13 @@ for message in st.session_state.messages:
         continue
 
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+        # Use unsafe_allow_html for messages that contain HTML styling
+        if message["content"].startswith("<div"):
+            st.markdown(message["content"], unsafe_allow_html=True)
+        else:
+            st.markdown(message["content"])
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------
@@ -346,10 +582,11 @@ if prompt := st.chat_input("Type your response..."):
         level, reason = guardrail_result
 
         response = (
-            f"### 🚨 Triage Level: {level}\n\n"
-            f"**Reason:** {reason}\n\n"
-            "Please call your local emergency services or go to "
-            "the nearest emergency department immediately."
+            f"<div class='emergency-response'>"
+            f"<h3>🚨 <span class='triage-emergency'>Triage Level: {level}</span></h3>"
+            f"<p><strong>Reason:</strong> {reason}</p>"
+            f"<p><strong>Action Required:</strong> Please call your local emergency services or go to the nearest emergency department immediately.</p>"
+            f"</div>"
         )
 
         # Save user message
@@ -373,7 +610,7 @@ if prompt := st.chat_input("Type your response..."):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            st.markdown(response)
+            st.markdown(response, unsafe_allow_html=True)
 
         st.stop()
 
