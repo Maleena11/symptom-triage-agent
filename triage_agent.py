@@ -3,11 +3,30 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import re
 from typing import Any
 
 from intake_state import ClinicalIntake
 
 MODEL_NAME = "gemini-3.5-flash"
+TRIAGE_LEVEL_PATTERN = re.compile(
+    r"^\s*(?:\*\*)?triage\s+level(?:\*\*)?\s*:\s*(?:\*\*)?"
+    r"(emergency|urgent|routine|self[ -]?care)(?:\*\*)?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+PLAIN_TRIAGE_PATTERN = re.compile(
+    r"^\s*(?:based on (?:the|your) (?:information|symptoms)[,:]?\s*)?"
+    r"(?:i (?:would )?classify this as|this (?:is|appears to be|should be treated as)|"
+    r"(?:the )?(?:triage )?(?:assessment|classification|conclusion|recommendation) (?:is|would be))\s+"
+    r"(?:an?\s+)?(emergency|urgent|routine|self[ -]?care)"
+    r"(?:\s+(?:case|level|situation))?[.!]?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+FORMAT_RETRY_PROMPT = """Reissue your previous answer once. If it was a triage conclusion, put exactly
+`Triage Level: Emergency`, `Triage Level: Urgent`, `Triage Level: Routine`, or
+`Triage Level: Self-care` on its own first line, then retain the reason and next
+steps. If it was a necessary follow-up question rather than a conclusion, repeat
+that question unchanged. Do not change the clinical assessment or add new facts."""
 SYSTEM_PROMPT = """You are a Symptom Triage Chat Agent. Assess urgency, not diagnosis. Classify each case as exactly one of: Emergency, Urgent, Routine, or Self-care.
 
 The application makes exactly one model request per non-blocked turn: this streamed conversation request. Perform the semantic emergency assessment yourself from the entire conversation, including short follow-up answers such as "2 days" and symptoms reported in different turns. Never say that a separate safety check is needed.
@@ -40,3 +59,36 @@ def stream_triage_response(client: Any, messages: Iterable[dict[str, str]], inta
 
     instruction = f"{SYSTEM_PROMPT}\n\n{intake.to_prompt_context()}"
     return client.models.generate_content_stream(model=MODEL_NAME, contents=to_gemini_history(messages), config=types.GenerateContentConfig(system_instruction=instruction))
+
+
+def retry_triage_response(
+    client: Any,
+    messages: Iterable[dict[str, str]],
+    intake: ClinicalIntake,
+    invalid_response: str,
+) -> str:
+    """Retry an unrecognized response once, asking only for format correction."""
+    retry_messages = [
+        *messages,
+        {"role": "assistant", "content": invalid_response},
+        {"role": "user", "content": FORMAT_RETRY_PROMPT},
+    ]
+    return collect_triage_response(client, retry_messages, intake)
+
+
+def collect_triage_response(client: Any, messages: Iterable[dict[str, str]], intake: ClinicalIntake) -> str:
+    """Run one triage turn and combine the streamed chunks into one response."""
+    return "".join(chunk.text for chunk in stream_triage_response(client, messages, intake) if chunk.text)
+
+
+def extract_triage_level(response: str) -> tuple[str, str] | None:
+    """Return a normalized explicit or unambiguous plain-language conclusion."""
+    pattern = TRIAGE_LEVEL_PATTERN
+    match = pattern.search(response)
+    if not match:
+        pattern = PLAIN_TRIAGE_PATTERN
+        match = pattern.search(response)
+    if not match:
+        return None
+    level = match.group(1).casefold().replace(" ", "-")
+    return level, pattern.sub("", response, count=1).strip()

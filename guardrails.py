@@ -35,6 +35,24 @@ def emergency_guardrail(text: str) -> TriageResult | None:
     """
     message = " ".join(text.casefold().replace("’", "'").split())
 
+    # Immediate danger to self. Keep this ahead of physical symptom checks so
+    # the returned reason gives the most relevant emergency instruction.
+    self_harm = _matches(
+        message,
+        r"\b(?:suicidal|want to (?:die|kill myself)|going to kill myself)\b",
+        r"\b(?:thinking (?:about|of)|thoughts? (?:about|of)) (?:suicide|killing myself|self[ -]?harm)\b",
+        r"\b(?:hurt|harm|cut) myself\b",
+        r"\b(?:end|take) my (?:own )?life\b",
+    )
+    self_harm_negated = _matches(
+        message,
+        r"\b(?:not|never|no longer) suicidal\b",
+        r"\b(?:do not|don't|dont) want to (?:die|kill|hurt|harm) myself\b",
+        r"\bno (?:suicidal|self[ -]?harm) (?:thoughts?|feelings?|intent)\b",
+    )
+    if self_harm and not self_harm_negated:
+        return TriageResult(EMERGENCY, "Suicidal or self-harm thoughts require immediate emergency support.")
+
     # Respiratory failure / airway obstruction.
     if _matches(
         message,
@@ -42,6 +60,7 @@ def emergency_guardrail(text: str) -> TriageResult | None:
         r"\b(?:gasping|gasping for air|turning blue|blue (?:lips|face))\b",
         r"\b(?:choking|airway blocked)\b.*\b(?:can't|cannot|unable to) (?:breathe|speak)\b",
         r"\b(?:severe|extreme) (?:shortness of breath|difficulty|trouble) breathing\b",
+        r"\b(?:i(?:'m| am| feel)?|feeling) (?:very |extremely |severely )?breathless\b",
     ):
         return TriageResult(EMERGENCY, "Severe breathing difficulty or an obstructed airway is an emergency warning sign.")
 
@@ -66,6 +85,9 @@ def emergency_guardrail(text: str) -> TriageResult | None:
 
     # Cardiac presentations. Chest discomfort with a serious associated symptom
     # is a high-confidence emergency pattern.
+    if _matches(message, r"\b(?:crushing|squeezing) (?:chest pain|pain (?:in|across) (?:my |the )?chest)\b"):
+        return TriageResult(EMERGENCY, "Crushing or squeezing chest pain may be a cardiac emergency.")
+
     chest_discomfort = _matches(message, r"\b(?:chest (?:pain|pressure|tightness|discomfort)|pressure (?:in|on) (?:my )?chest)\b")
     cardiac_associated = _matches(
         message,
@@ -84,13 +106,31 @@ def emergency_guardrail(text: str) -> TriageResult | None:
         r"\bbleeding (?:won't|will not|doesn't|does not) stop\b",
         r"\b(?:spurting|gushing) blood\b",
         r"\bblood (?:is |was )?(?:spurting|gushing)\b",
-        r"\b(?:vomiting|throwing up|coughing up) blood\b",
+        r"\b(?:vomiting|throwing up|coughing(?: up)?) blood\b",
+        r"\b(?:black(?: and|/)? tarry|black|tarry) (?:stool|stools|poo|feces|faeces)\b",
+        r"\b(?:stool|stools|poo|feces|faeces) (?:is |are )?(?:black(?: and|/)? tarry|black|tarry)\b",
         r"\b(?:soaking|soaked) (?:a |\d+ )?(?:pad|tampon|bandage) (?:an? )?hour\b",
     ):
         return TriageResult(EMERGENCY, "Severe or uncontrolled bleeding requires immediate emergency care.")
 
-    if _matches(message, r"\b(?:loss of consciousness|lost consciousness|unconscious|passed out)\b"):
+    if _matches(message, r"\b(?:loss of consciousness|lost consciousness|unconscious|passed out|collapsed)\b"):
         return TriageResult(EMERGENCY, "Loss of consciousness is an emergency warning sign.")
+
+    if _matches(
+        message,
+        r"\b(?:sudden(?:ly)?|abrupt(?:ly)?) (?:lost|loss of) (?:my )?vision\b",
+        r"\b(?:sudden|abrupt) (?:blindness|vision loss)\b",
+    ):
+        return TriageResult(EMERGENCY, "Sudden vision loss requires immediate emergency evaluation.")
+
+    if _matches(
+        message,
+        r"\b(?:sudden|suddenly|abrupt|abruptly) (?:severe|extreme|excruciating) headache\b",
+        r"\b(?:severe|extreme|excruciating) headache (?:that )?(?:started|came on) suddenly\b",
+        r"\bworst headache (?:of my life|i(?:'ve| have) ever had)\b",
+        r"\bthunderclap headache\b",
+    ):
+        return TriageResult(EMERGENCY, "A sudden severe headache may indicate a life-threatening neurological emergency.")
     return None
 
 

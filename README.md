@@ -17,7 +17,12 @@ A Streamlit chat application that provides urgency guidance for reported symptom
 3. Copy `.env.example` to `.env`, then set `GEMINI_API_KEY`.
 4. Start the app: `streamlit run app.py`
 
-Run local safety tests with `python -m unittest test_triage.py`.
+Run the deterministic suite with `python -m unittest`. These tests exercise
+representative conversations through the Gemini request/stream/parsing pipeline
+using a conversation-aware network-boundary fake.
+
+To also evaluate the real model (uses Gemini quota), set `GEMINI_API_KEY` and
+`RUN_LIVE_TRIAGE_TESTS=1`, then run `python -m unittest test_classification_e2e.py`.
 
 ## Safety design
 

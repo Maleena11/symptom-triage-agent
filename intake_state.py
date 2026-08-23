@@ -53,9 +53,52 @@ class ClinicalIntake:
         return cls(**{field: value.get(field) for field in (*INTAKE_FIELDS, "pending_field")})
 
 
-ONSET_PATTERN = re.compile(r"\b(?:since|for|started|began|onset)\b.{0,60}|\b(?:today|yesterday|last night|this morning|\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\s*ago)\b", re.IGNORECASE)
+ONSET_PATTERN = re.compile(
+    r"\b(?:"
+    r"(?:started|began)\s+(?:today|yesterday|last night|this morning|\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\s+ago)"
+    r"|since\s+(?:today|yesterday|last night|this morning|\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\s+ago)"
+    r"|for\s+(?:(?:the\s+)?past\s+)?\d+\s*(?:minutes?|hours?|days?|weeks?|months?)"
+    r"|onset\s+(?:was\s+)?(?:today|yesterday|last night|this morning|\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\s+ago)"
+    r"|today|yesterday|last night|this morning|\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\s+ago"
+    r")\b",
+    re.IGNORECASE,
+)
 SEVERITY_SCORE_PATTERN = re.compile(r"\b(10|[1-9])\s*(?:/|out of)\s*10\b", re.IGNORECASE)
 SEVERITY_WORD_PATTERN = re.compile(r"\b(mild|moderate|severe)\b", re.IGNORECASE)
+
+QUESTION_PATTERNS = {
+    "onset_duration": re.compile(
+        r"\b(?:when\b[^?]*(?:start|begin)|how long\b[^?]*(?:going on|had|have|last))",
+        re.IGNORECASE,
+    ),
+    "severity": re.compile(
+        r"\b(?:how severe|rate\b[^?]*(?:1\s*(?:to|[-–])\s*10|out of 10)|"
+        r"(?:mild|moderate|severe)\b[^?]*(?:which|would|is it))",
+        re.IGNORECASE,
+    ),
+    "progression": re.compile(
+        r"\b(?:improving\b[^?]*(?:same|worse)|getting (?:better|worse)|"
+        r"staying (?:about )?the same)",
+        re.IGNORECASE,
+    ),
+    "red_flags": re.compile(
+        r"\b(?:warning signs?|red flags?|trouble breathing|chest pain|fainting|"
+        r"one-sided weakness|severe bleeding|face or throat)",
+        re.IGNORECASE,
+    ),
+}
+
+
+def track_asked_question(intake: ClinicalIntake, assistant_text: str) -> ClinicalIntake:
+    """Track a supported intake field only when the assistant actually asks it."""
+    questions = re.findall(r"[^?]*\?", " ".join(assistant_text.split()))
+    intake.pending_field = None
+    for question in reversed(questions):
+        for field, pattern in QUESTION_PATTERNS.items():
+            if getattr(intake, field) is None and pattern.search(question):
+                intake.pending_field = field
+                return intake
+    return intake
 
 
 def update_intake(intake: ClinicalIntake, user_text: str) -> ClinicalIntake:
@@ -75,10 +118,19 @@ def update_intake(intake: ClinicalIntake, user_text: str) -> ClinicalIntake:
         intake.progression = "improving"
     elif re.search(r"\b(?:constant|unchanged|the same|staying the same|not changing)\b", lower):
         intake.progression = "constant"
+
+    # Short answers often have meaning only in the context of the question just
+    # asked (for example, "two days" or "pretty bad"). Preserve that answer in
+    # its intended slot when explicit extraction above did not fill it.
+    if text and previous_pending in INTAKE_FIELDS and getattr(intake, previous_pending) is None:
+        if previous_pending != "red_flags":
+            setattr(intake, previous_pending, text)
     if previous_pending == "red_flags" or "warning sign" in lower or "red flag" in lower:
         if re.search(r"\b(?:yes|yeah|yep|i do|i am|having|some)\b", lower):
             intake.red_flags = "positive"
         elif re.search(r"\b(?:no|nope|none|not at all|i don't|i do not|without)\b", lower):
             intake.red_flags = "negative"
-    intake.pending_field = intake.next_field()
+    # The reply resolves the pending question. A new pending field is recorded
+    # only after inspecting the assistant's next response.
+    intake.pending_field = None
     return intake
