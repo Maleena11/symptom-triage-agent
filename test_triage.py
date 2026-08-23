@@ -5,7 +5,7 @@ import unittest
 from guardrails import EMERGENCY, TriageResult, emergency_guardrail, emergency_guardrail_history, emergency_response
 from intake_state import ClinicalIntake, QUESTIONS, update_intake
 from triage_agent import SYSTEM_PROMPT
-from app import extract_triage_level
+from app import DEMO_PRESETS, extract_triage_level
 
 
 class EmergencyGuardrailTests(unittest.TestCase):
@@ -110,6 +110,22 @@ class AdaptiveStoppingPromptTests(unittest.TestCase):
 
 
 class TriagePresentationTests(unittest.TestCase):
+    def test_demo_presets_cover_each_triage_level_with_expected_symptoms(self):
+        self.assertEqual(len(DEMO_PRESETS), 4)
+        self.assertEqual(
+            [label for label, _, _ in DEMO_PRESETS],
+            ["Preset 1: Emergency", "Preset 2: Urgent", "Preset 3: Routine", "Preset 4: Self-Care"],
+        )
+        self.assertEqual(
+            [symptoms for _, symptoms, _ in DEMO_PRESETS],
+            [
+                "Sudden chest pain radiating to left arm and shortness of breath",
+                "High fever of 39.5\u00b0C for 2 days, persistent vomiting",
+                "Mild knee ache when walking for the past 3 weeks",
+                "Mild runny nose and sneezing since this morning, no fever",
+            ],
+        )
+
     def test_extracts_each_triage_level_and_removes_the_plain_text_label(self):
         for level, expected in (
             ("Emergency", "emergency"),
@@ -127,6 +143,43 @@ class TriagePresentationTests(unittest.TestCase):
 
     def test_non_conclusion_remains_regular_chat(self):
         self.assertIsNone(extract_triage_level("When did these symptoms begin?"))
+
+
+class ClassificationAccuracyTests(unittest.TestCase):
+    """Regression cases for non-emergency triage conclusions.
+
+    These use representative model responses rather than calling Gemini, keeping
+    the unit suite deterministic and independent of credentials or network access.
+    """
+
+    CASES = (
+        (
+            "Urgent",
+            "I have been vomiting all day, cannot keep fluids down, and feel dizzy.",
+            "Triage Level: Urgent\n\nYou should be assessed within 24 hours because dehydration is possible.",
+            "urgent",
+        ),
+        (
+            "Routine",
+            "I have had recurring mild heartburn after meals for three weeks, with no warning signs.",
+            "Triage Level: Routine\n\nBook a standard appointment to discuss persistent symptoms.",
+            "routine",
+        ),
+        (
+            "Self-care",
+            "I have had a mild runny nose and sore throat for one day, without fever or breathing problems.",
+            "Triage Level: Self-care\n\nRest, drink fluids, and seek care if symptoms worsen.",
+            "self-care",
+        ),
+    )
+
+    def test_representative_non_emergency_cases_have_expected_triage_level(self):
+        for case_name, user_symptoms, model_response, expected_level in self.CASES:
+            with self.subTest(case=case_name, symptoms=user_symptoms):
+                result = extract_triage_level(model_response)
+                self.assertIsNotNone(result)
+                actual_level, _ = result
+                self.assertEqual(actual_level, expected_level)
 
 
 if __name__ == "__main__":

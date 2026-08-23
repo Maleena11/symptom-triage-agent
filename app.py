@@ -22,6 +22,29 @@ TRIAGE_LEVEL_PATTERN = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+DEMO_PRESETS = (
+    (
+        "Preset 1: Emergency",
+        "Sudden chest pain radiating to left arm and shortness of breath",
+        "Tests the immediate emergency guardrail.",
+    ),
+    (
+        "Preset 2: Urgent",
+        "High fever of 39.5\u00b0C for 2 days, persistent vomiting",
+        "Tests care within 24 hours.",
+    ),
+    (
+        "Preset 3: Routine",
+        "Mild knee ache when walking for the past 3 weeks",
+        "Tests a standard GP appointment.",
+    ),
+    (
+        "Preset 4: Self-Care",
+        "Mild runny nose and sneezing since this morning, no fever",
+        "Tests home care advice.",
+    ),
+)
+
 WELCOME_MESSAGE = "Hello! 👋 I can help assess the urgency of your symptoms. Please describe what you are experiencing today."
 
 st.set_page_config(page_title="Symptom Triage Agent", page_icon="🩺", layout="wide", initial_sidebar_state="expanded")
@@ -106,31 +129,32 @@ def render_intake_status(intake: ClinicalIntake) -> None:
             st.caption(f"{'✅' if value is not None else '◻️'} {label}: {value or 'pending'}")
 
 
-def render_sidebar() -> None:
+def render_sidebar() -> str | None:
+    selected_preset = None
     with st.sidebar:
         if st.button("🔄 Start New Assessment", use_container_width=True):
             st.session_state.clear()
             st.rerun()
+        st.markdown("### Demo presets")
+        for label, symptom_text, description in DEMO_PRESETS:
+            if st.button(label, key=f"demo_preset_{label}", use_container_width=True):
+                selected_preset = symptom_text
+            st.caption(description)
         st.markdown("### Important disclaimer")
         st.error("This is not a medical diagnosis tool. Consult a qualified healthcare professional for medical advice.")
         st.markdown("### Emergency numbers")
         st.markdown("Call your local emergency number (such as **911**, **112**, or **999**) for an emergency.")
         st.markdown("### Triage levels")
         st.markdown("🔴 Emergency — immediate care\n\n🟠 Urgent — care within 24 hours\n\n🔵 Routine — standard appointment\n\n🟢 Self-care — home care and monitoring")
+    return selected_preset
 
 
 def main() -> None:
     render_style()
     st.markdown("<div class='header-container'><h1 class='header-title'>🩺 Symptom Triage Agent</h1><p class='header-subtitle'>Professional Symptom Assessment & Triage System</p></div>", unsafe_allow_html=True)
-    render_sidebar()
     initialise_messages()
+    selected_preset = render_sidebar()
     render_intake_status(intake_from_session())
-
-    api_key = resolve_api_key()
-    if not api_key:
-        st.error("Please set GEMINI_API_KEY in a .env file or Streamlit Secrets.")
-        st.stop()
-    client = create_client(api_key)
 
     for message in st.session_state.messages:
         if message["role"] != "system":
@@ -140,7 +164,8 @@ def main() -> None:
                 else:
                     st.markdown(message["content"])
 
-    if prompt := st.chat_input("Type your response..."):
+    prompt = selected_preset or st.chat_input("Type your response...")
+    if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
         intake = update_intake(intake_from_session(), prompt)
         st.session_state.clinical_intake = intake.as_dict()
@@ -154,6 +179,12 @@ def main() -> None:
             with st.chat_message("assistant"):
                 render_assistant_response(response)
             st.stop()
+
+        api_key = resolve_api_key()
+        if not api_key:
+            st.error("Please set GEMINI_API_KEY in a .env file or Streamlit Secrets.")
+            st.stop()
+        client = create_client(api_key)
 
         with st.chat_message("assistant"):
             placeholder = st.empty()
