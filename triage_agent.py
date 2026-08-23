@@ -81,6 +81,20 @@ def collect_triage_response(client: Any, messages: Iterable[dict[str, str]], int
     return "".join(chunk.text for chunk in stream_triage_response(client, messages, intake) if chunk.text)
 
 
+def enforce_single_follow_up(response: str, intake: ClinicalIntake) -> str:
+    """Return a conclusion unchanged, or exactly one application-owned question.
+
+    Models can occasionally bundle several requests into one follow-up even when
+    instructed not to. Selecting follow-ups here makes the one-question contract
+    deterministic and keeps pending-field tracking aligned with the visible text.
+    """
+    if extract_triage_level(response):
+        return response.strip()
+    if question := intake.next_question():
+        return question
+    return response.strip()
+
+
 def extract_triage_level(response: str) -> tuple[str, str] | None:
     """Return a normalized explicit or unambiguous plain-language conclusion."""
     pattern = TRIAGE_LEVEL_PATTERN

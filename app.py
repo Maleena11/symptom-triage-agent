@@ -12,6 +12,7 @@ from intake_state import ClinicalIntake, track_asked_question, update_intake
 from triage_agent import (
     SYSTEM_PROMPT,
     create_client,
+    enforce_single_follow_up,
     extract_triage_level,
     retry_triage_response,
     stream_triage_response,
@@ -234,15 +235,16 @@ def main() -> None:
             full_response = ""
             try:
                 client = create_client(api_key)
+                placeholder.markdown("Assessing your symptoms...")
                 for chunk in stream_triage_response(client, st.session_state.messages, intake):
                     if chunk.text:
                         full_response += chunk.text
-                        placeholder.markdown(full_response + "▌")
                 if not extract_triage_level(full_response):
                     placeholder.markdown("Validating the response...")
                     full_response = retry_triage_response(
                         client, st.session_state.messages, intake, full_response
                     )
+                full_response = enforce_single_follow_up(full_response, intake)
                 placeholder.empty()
                 render_assistant_response(full_response)
                 st.session_state.messages.append({"role": "assistant", "content": full_response})

@@ -4,7 +4,7 @@ import unittest
 
 from guardrails import EMERGENCY, TriageResult, emergency_guardrail, emergency_guardrail_history, emergency_response
 from intake_state import ClinicalIntake, QUESTIONS, track_asked_question, update_intake
-from triage_agent import SYSTEM_PROMPT, extract_triage_level
+from triage_agent import SYSTEM_PROMPT, enforce_single_follow_up, extract_triage_level
 from app import DEMO_PRESETS, WELCOME_MESSAGE, safe_api_failure_response
 
 
@@ -219,6 +219,25 @@ class AdaptiveStoppingPromptTests(unittest.TestCase):
     def test_prompt_limits_follow_up_questions_to_decision_relevant_uncertainty(self):
         self.assertIn("Ask one concise follow-up question only", SYSTEM_PROMPT)
         self.assertIn("could reasonably change the triage level or recommended action", SYSTEM_PROMPT)
+
+
+class SingleFollowUpEnforcementTests(unittest.TestCase):
+    def test_bundled_model_questions_are_replaced_with_one_next_question(self):
+        intake = ClinicalIntake(onset_duration="about two days")
+        response = (
+            "How severe is the pain? Did it start suddenly? Are you experiencing "
+            "a stiff neck, fever, confusion, or changes in vision or speech?"
+        )
+
+        result = enforce_single_follow_up(response, intake)
+
+        self.assertEqual(result, QUESTIONS["severity"])
+        self.assertEqual(result.count("?"), 1)
+
+    def test_triage_conclusion_is_not_replaced_with_a_follow_up(self):
+        response = "Triage Level: Urgent\n\nPlease seek medical care within 24 hours."
+
+        self.assertEqual(enforce_single_follow_up(response, ClinicalIntake()), response)
 
 
 class TriagePresentationTests(unittest.TestCase):
