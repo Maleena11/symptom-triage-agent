@@ -138,6 +138,16 @@ class ClinicalIntakeTests(unittest.TestCase):
         self.assertEqual(intake.red_flags, "negative")
         self.assertTrue(intake.is_complete())
 
+    def test_stretched_no_completes_red_flag_screen(self):
+        intake = ClinicalIntake(onset_duration="2 days ago", severity="mild", progression="constant")
+        track_asked_question(intake, QUESTIONS["red_flags"])
+
+        update_intake(intake, "nooo")
+
+        self.assertEqual(intake.red_flags, "negative")
+        self.assertTrue(intake.is_complete())
+        self.assertIsNone(intake.next_question())
+
     def test_next_question_is_first_uncollected_slot(self):
         intake = ClinicalIntake()
         self.assertEqual(intake.next_question(), QUESTIONS["onset_duration"])
@@ -206,8 +216,16 @@ class ApiFailureFallbackTests(unittest.TestCase):
         intake = ClinicalIntake("today", "mild", "constant", "negative")
         response = safe_api_failure_response(intake)
 
-        self.assertIn("can't safely assign a triage level", response)
+        self.assertIn("Triage Level: Self-care", response)
+        self.assertIn("mild, recent, not worsening", response)
         self.assertNotIn("To continue the intake safely", response)
+
+    def test_completed_persistent_intake_receives_routine_level(self):
+        intake = ClinicalIntake("3 weeks", "mild", "constant", "negative")
+
+        response = safe_api_failure_response(intake)
+
+        self.assertIn("Triage Level: Routine", response)
 
 
 class AdaptiveStoppingPromptTests(unittest.TestCase):
@@ -250,12 +268,32 @@ class TriagePresentationTests(unittest.TestCase):
         self.assertEqual(
             [symptoms for _, symptoms, _ in DEMO_PRESETS],
             [
-                "Sudden chest pain radiating to left arm and shortness of breath",
-                "High fever of 39.5\u00b0C for 2 days, persistent vomiting",
-                "Mild knee ache when walking for the past 3 weeks",
-                "Mild runny nose and sneezing since this morning, no fever",
+                "Severe chest pain started 20 minutes ago, is getting worse, and is radiating to my left arm with shortness of breath. Apart from these symptoms, I have no other warning signs.",
+                "I have had a 39.5\u00b0C fever and persistent vomiting for 2 days. It is severe and getting worse. I have no warning signs.",
+                "I have had a mild knee ache when walking for the past 3 weeks. It is staying the same, and I have no warning signs.",
+                "I have had a mild runny nose and sneezing since this morning. It is improving, and I have no warning signs.",
             ],
         )
+
+    def test_demo_presets_are_complete_and_reach_the_advertised_triage_level(self):
+        expected_levels = ("emergency", "urgent", "routine", "self-care")
+
+        for ((label, symptoms, _), expected) in zip(DEMO_PRESETS, expected_levels):
+            with self.subTest(preset=label):
+                intake = update_intake(ClinicalIntake(), symptoms)
+                self.assertTrue(intake.is_complete(), intake.as_dict())
+                self.assertEqual(intake.red_flags, "negative")
+
+                emergency = emergency_guardrail(symptoms)
+                if expected == "emergency":
+                    self.assertIsNotNone(emergency)
+                    actual = emergency.level.casefold()
+                else:
+                    self.assertIsNone(emergency)
+                    response = safe_api_failure_response(intake)
+                    actual = extract_triage_level(response)[0]
+
+                self.assertEqual(actual, expected)
 
     def test_extracts_each_triage_level_and_removes_the_plain_text_label(self):
         for level, expected in (

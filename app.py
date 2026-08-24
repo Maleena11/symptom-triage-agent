@@ -27,22 +27,27 @@ TRIAGE_LEVELS = {
 DEMO_PRESETS = (
     (
         "Preset 1: Emergency",
-        "Sudden chest pain radiating to left arm and shortness of breath",
+        "Severe chest pain started 20 minutes ago, is getting worse, and is radiating "
+        "to my left arm with shortness of breath. Apart from these symptoms, I have no "
+        "other warning signs.",
         "Tests the immediate emergency guardrail.",
     ),
     (
         "Preset 2: Urgent",
-        "High fever of 39.5\u00b0C for 2 days, persistent vomiting",
+        "I have had a 39.5\u00b0C fever and persistent vomiting for 2 days. It is severe "
+        "and getting worse. I have no warning signs.",
         "Tests care within 24 hours.",
     ),
     (
         "Preset 3: Routine",
-        "Mild knee ache when walking for the past 3 weeks",
+        "I have had a mild knee ache when walking for the past 3 weeks. It is staying "
+        "the same, and I have no warning signs.",
         "Tests a standard GP appointment.",
     ),
     (
         "Preset 4: Self-Care",
-        "Mild runny nose and sneezing since this morning, no fever",
+        "I have had a mild runny nose and sneezing since this morning. It is improving, "
+        "and I have no warning signs.",
         "Tests home care advice.",
     ),
 )
@@ -124,18 +129,19 @@ def intake_from_session() -> ClinicalIntake:
 
 
 def safe_api_failure_response(intake: ClinicalIntake) -> str:
-    """Return conservative, local guidance when Gemini is unavailable."""
+    """Return a deterministic four-level result when Gemini is unavailable."""
     severity_score = re.search(r"\b(10|[1-9])/10\b", intake.severity or "")
     is_severe = (intake.severity or "").casefold() == "severe" or (
         severity_score is not None and int(severity_score.group(1)) >= 7
     )
     is_worsening = (intake.progression or "").casefold() == "worsening"
+    has_reported_red_flag = (intake.red_flags or "").casefold() not in {"", "negative"}
 
-    if is_severe or is_worsening:
+    if is_severe or is_worsening or has_reported_red_flag:
         return (
             "Triage Level: Urgent\n\n"
-            "I couldn't complete the automated assessment. Because your symptoms are "
-            "severe or worsening, please seek prompt advice from a qualified healthcare "
+            "Reason: Your symptoms are severe, worsening, or include a reported warning "
+            "sign that needs prompt professional assessment. Please seek advice from a qualified healthcare "
             "professional or urgent-care service now. If symptoms become life-threatening "
             "or you develop trouble breathing, chest pain, fainting, new weakness or speech "
             "trouble, severe bleeding, or face/throat swelling, call your local emergency "
@@ -150,11 +156,36 @@ def safe_api_failure_response(intake: ClinicalIntake) -> str:
             f"To continue the intake safely: {question}"
         )
 
+    duration = (intake.onset_duration or "").casefold()
+    days = re.search(r"\b(\d+)\s*days?\b", duration)
+    is_prolonged = "week" in duration or "month" in duration or (
+        days is not None and int(days.group(1)) >= 7
+    )
+    is_mild = (intake.severity or "").casefold() == "mild" or (
+        severity_score is not None and int(severity_score.group(1)) <= 3
+    )
+    is_stable_or_better = (intake.progression or "").casefold() in {
+        "constant",
+        "improving",
+        "same",
+    }
+
+    if is_mild and is_stable_or_better and not is_prolonged:
+        return (
+            "Triage Level: Self-care\n\n"
+            "Reason: The symptoms are mild, recent, not worsening, and you reported no "
+            "emergency warning signs. Rest, stay hydrated, and monitor your symptoms. "
+            "Arrange medical care if they persist or worsen. Call your local emergency "
+            "number immediately if an emergency warning sign develops."
+        )
+
     return (
-        "I couldn't complete the automated assessment, so I can't safely assign a triage "
-        "level. Please contact a qualified healthcare professional for advice. Seek urgent "
-        "help if symptoms are severe or worsening, and call your local emergency number "
-        "immediately for any emergency warning signs."
+        "Triage Level: Routine\n\n"
+        "Reason: You reported no emergency warning signs and the symptoms are not severe "
+        "or worsening, but they are persistent or not clearly suitable for self-care alone. "
+        "Arrange a standard appointment with a qualified healthcare professional. Seek "
+        "urgent help if symptoms worsen, and call your local emergency number immediately "
+        "if an emergency warning sign develops."
     )
 
 
@@ -199,7 +230,6 @@ def main() -> None:
     st.markdown("<div class='header-container'><h1 class='header-title'>🩺 Symptom Triage Agent</h1><p class='header-subtitle'>Professional Symptom Assessment & Triage System</p></div>", unsafe_allow_html=True)
     initialise_messages()
     selected_preset = render_sidebar()
-    render_intake_status(intake_from_session())
 
     for message in st.session_state.messages:
         if message["role"] != "system":
@@ -223,6 +253,14 @@ def main() -> None:
             st.session_state.messages.append({"role": "assistant", "content": response})
             with st.chat_message("assistant"):
                 render_assistant_response(response)
+            st.stop()
+
+        # Clarifying questions are application-owned and deterministic. This
+        # guarantees that each missing safety field is collected one at a time
+        # before the model assigns a non-emergency triage level.
+        if question := intake.next_question():
+            with st.chat_message("assistant"):
+                show_and_store_assistant_response(question)
             st.stop()
 
         api_key = resolve_api_key()

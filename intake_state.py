@@ -126,10 +126,25 @@ def update_intake(intake: ClinicalIntake, user_text: str) -> ClinicalIntake:
         if previous_pending != "red_flags":
             setattr(intake, previous_pending, text)
     if previous_pending == "red_flags" or "warning sign" in lower or "red flag" in lower:
-        if re.search(r"\b(?:yes|yeah|yep|i do|i am|having|some)\b", lower):
-            intake.red_flags = "positive"
-        elif re.search(r"\b(?:no|nope|none|not at all|i don't|i do not|without)\b", lower):
+        # Chat replies commonly stretch short words (for example, "nooo").
+        # Treat those variants as a completed negative screen so the intake
+        # does not ask the same question forever.
+        negative = re.search(
+            r"\b(?:no+|nope+|none|nah+|not at all|i don't|i do not|without)\b",
+            lower,
+        )
+        explicit_red_flag = re.search(
+            r"\b(?:trouble breathing|shortness of breath|chest (?:pain|pressure)|faint(?:ing|ed)?|"
+            r"passed out|one[ -]sided weakness|speech trouble|severe bleeding|"
+            r"(?:face|throat|tongue|lips?) swelling)\b",
+            lower,
+        )
+        if negative:
             intake.red_flags = "negative"
+        elif explicit_red_flag or re.search(r"\b(?:yes|yeah|yep|i do|i am|having|some)\b", lower):
+            # Preserve the actual warning sign where possible so the model can
+            # reason about it; a bare affirmative is still useful context.
+            intake.red_flags = text if explicit_red_flag else "positive"
     # The reply resolves the pending question. A new pending field is recorded
     # only after inspecting the assistant's next response.
     intake.pending_field = None
