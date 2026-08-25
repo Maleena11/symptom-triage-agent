@@ -5,7 +5,7 @@ import unittest
 from guardrails import EMERGENCY, TriageResult, emergency_guardrail, emergency_guardrail_history, emergency_response
 from intake_state import ClinicalIntake, QUESTIONS, track_asked_question, update_intake
 from triage_agent import SYSTEM_PROMPT, enforce_single_follow_up, extract_triage_level
-from app import DEMO_PRESETS, WELCOME_MESSAGE, complete_demo_intake, safe_api_failure_response
+from app import DEMO_PRESETS, WELCOME_MESSAGE, safe_api_failure_response
 
 
 class EmergencyGuardrailTests(unittest.TestCase):
@@ -262,11 +262,11 @@ class TriagePresentationTests(unittest.TestCase):
     def test_demo_presets_cover_each_triage_level_with_expected_symptoms(self):
         self.assertEqual(len(DEMO_PRESETS), 4)
         self.assertEqual(
-            [label for label, _, _, _ in DEMO_PRESETS],
+            [label for label, _, _ in DEMO_PRESETS],
             ["Preset 1: Emergency", "Preset 2: Urgent", "Preset 3: Routine", "Preset 4: Self-Care"],
         )
         self.assertEqual(
-            [symptoms for _, symptoms, _, _ in DEMO_PRESETS],
+            [symptoms for _, symptoms, _ in DEMO_PRESETS],
             [
                 "Severe chest pain started 20 minutes ago, is getting worse, and is radiating to my left arm with shortness of breath. Apart from these symptoms, I have no other warning signs.",
                 "I have a high fever and keep vomiting.",
@@ -276,25 +276,17 @@ class TriagePresentationTests(unittest.TestCase):
         )
 
     def test_emergency_demo_is_immediate_but_other_demos_start_guided_intake(self):
-        _, emergency_symptoms, emergency_answers, _ = DEMO_PRESETS[0]
+        _, emergency_symptoms, _ = DEMO_PRESETS[0]
         emergency = emergency_guardrail(emergency_symptoms)
         self.assertIsNotNone(emergency)
         self.assertEqual(emergency.level.casefold(), "emergency")
-        self.assertEqual(emergency_answers, ())
 
-        expected_levels = ("urgent", "routine", "self-care")
-        for (label, symptoms, answers, _), expected in zip(DEMO_PRESETS[1:], expected_levels):
+        for label, symptoms, _ in DEMO_PRESETS[1:]:
             with self.subTest(preset=label):
                 intake = update_intake(ClinicalIntake(), symptoms)
                 self.assertFalse(intake.is_complete(), intake.as_dict())
                 self.assertEqual(intake.next_question(), QUESTIONS["onset_duration"])
                 self.assertIsNone(emergency_guardrail(symptoms))
-
-                intake, exchanges = complete_demo_intake(intake, answers)
-                self.assertTrue(intake.is_complete(), intake.as_dict())
-                self.assertEqual([question for question, _ in exchanges], list(QUESTIONS.values()))
-                response = safe_api_failure_response(intake)
-                self.assertEqual(extract_triage_level(response)[0], expected)
 
     def test_extracts_each_triage_level_and_removes_the_plain_text_label(self):
         for level, expected in (
