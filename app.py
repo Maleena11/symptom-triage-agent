@@ -30,25 +30,26 @@ DEMO_PRESETS = (
         "Severe chest pain started 20 minutes ago, is getting worse, and is radiating "
         "to my left arm with shortness of breath. Apart from these symptoms, I have no "
         "other warning signs.",
+        (),
         "Tests the immediate emergency guardrail.",
     ),
     (
         "Preset 2: Urgent",
-        "I have had a 39.5\u00b0C fever and persistent vomiting for 2 days. It is severe "
-        "and getting worse. I have no warning signs.",
-        "Tests care within 24 hours.",
+        "I have a high fever and keep vomiting.",
+        ("It started 2 days ago.", "Severe.", "It is getting worse.", "No."),
+        "Automatically demonstrates care within 24 hours.",
     ),
     (
         "Preset 3: Routine",
-        "I have had a mild knee ache when walking for the past 3 weeks. It is staying "
-        "the same, and I have no warning signs.",
-        "Tests a standard GP appointment.",
+        "My knee aches when I walk.",
+        ("It started 3 weeks ago.", "Mild.", "It is staying the same.", "No."),
+        "Automatically demonstrates a standard appointment.",
     ),
     (
         "Preset 4: Self-Care",
-        "I have had a mild runny nose and sneezing since this morning. It is improving, "
-        "and I have no warning signs.",
-        "Tests home care advice.",
+        "I have a runny nose and keep sneezing.",
+        ("It started this morning.", "Mild.", "It is improving.", "No."),
+        "Automatically demonstrates home-care advice.",
     ),
 )
 
@@ -128,6 +129,21 @@ def intake_from_session() -> ClinicalIntake:
     return ClinicalIntake.from_dict(st.session_state.clinical_intake)
 
 
+def complete_demo_intake(
+    intake: ClinicalIntake, answers: tuple[str, ...]
+) -> tuple[ClinicalIntake, list[tuple[str, str]]]:
+    """Apply preset answers as separate turns while preserving question order."""
+    exchanges = []
+    for answer in answers:
+        question = intake.next_question()
+        if question is None:
+            break
+        intake = track_asked_question(intake, question)
+        intake = update_intake(intake, answer)
+        exchanges.append((question, answer))
+    return intake, exchanges
+
+
 def safe_api_failure_response(intake: ClinicalIntake) -> str:
     """Return a deterministic four-level result when Gemini is unavailable."""
     severity_score = re.search(r"\b(10|[1-9])/10\b", intake.severity or "")
@@ -205,16 +221,16 @@ def render_intake_status(intake: ClinicalIntake) -> None:
             st.caption(f"{'✅' if value is not None else '◻️'} {label}: {value or 'pending'}")
 
 
-def render_sidebar() -> str | None:
+def render_sidebar() -> tuple[str, tuple[str, ...]] | None:
     selected_preset = None
     with st.sidebar:
         if st.button("🔄 Start New Assessment", use_container_width=True):
             st.session_state.clear()
             st.rerun()
         st.markdown("### Demo presets")
-        for label, symptom_text, description in DEMO_PRESETS:
+        for label, symptom_text, answers, description in DEMO_PRESETS:
             if st.button(label, key=f"demo_preset_{label}", use_container_width=True):
-                selected_preset = symptom_text
+                selected_preset = (symptom_text, answers)
             st.caption(description)
         st.markdown("### Important disclaimer")
         st.error("This is not a medical diagnosis tool. Consult a qualified healthcare professional for medical advice.")
@@ -239,7 +255,13 @@ def main() -> None:
                 else:
                     st.markdown(message["content"])
 
-    prompt = selected_preset or st.chat_input("Type your response...")
+    # Always render the input widget. If this is written as
+    # `selected_preset or st.chat_input(...)`, Python skips the chat_input call
+    # when a preset button is selected. The app then stops after displaying its
+    # first follow-up question and leaves the user with no field to answer it.
+    typed_prompt = st.chat_input("Type your response...")
+    prompt = selected_preset[0] if selected_preset else typed_prompt
+    demo_answers = selected_preset[1] if selected_preset else ()
     if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
         intake = update_intake(intake_from_session(), prompt)
@@ -254,6 +276,17 @@ def main() -> None:
             with st.chat_message("assistant"):
                 render_assistant_response(response)
             st.stop()
+
+        if demo_answers:
+            intake, exchanges = complete_demo_intake(intake, demo_answers)
+            st.session_state.clinical_intake = intake.as_dict()
+            for question, answer in exchanges:
+                st.session_state.messages.append({"role": "assistant", "content": question})
+                with st.chat_message("assistant"):
+                    render_assistant_response(question)
+                st.session_state.messages.append({"role": "user", "content": answer})
+                with st.chat_message("user"):
+                    st.markdown(answer)
 
         # Clarifying questions are application-owned and deterministic. This
         # guarantees that each missing safety field is collected one at a time
